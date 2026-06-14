@@ -4,8 +4,224 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>StylerCRM</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
 </head>
-<body>
-<h1>StylerCRM is Live! ✨</h1>
+<body style="margin:0">
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef } = React;
+
+const fmt = n => n >= 1e6 ? (n/1e6).toFixed(1)+"M" : n >= 1e3 ? (n/1e3).toFixed(0)+"K" : n;
+const initials = name => name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase();
+const AVATAR_COLORS = ["#D4C5FF","#FFD6E8","#C5F5E3","#FFE4CC","#C5E8FF","#FFF4C5","#E0F2FE","#FCE7F3"];
+
+const STYLISTS = [
+  {id:1,name:"Abhilasha Devnani",handle:"abhilashadevnani",followers:124000,des:"Senior",collabs:["Vicky Kaushal","Sidharth Malhotra","Aditya Roy Kapoor","Shahid Kapoor","Ranveer Singh"]},
+  {id:2,name:"Edward Lalrempuia",handle:"edwardlalr",followers:210000,des:"Senior",collabs:["Salman Khan","Shah Rukh Khan","Akshay Kumar","Varun Dhawan","John Abraham"]},
+  {id:3,name:"Mohit Rai",handle:"mohitraistylist",followers:67000,des:"Senior",collabs:["Salman Khan","Sanjay Dutt","Suniel Shetty","Bobby Deol","Arbaaz Khan"]},
+  {id:4,name:"Tanya Ghavri",handle:"tanyaghavri",followers:156000,des:"Senior",collabs:["Karan Johar","Vicky Kaushal","Sidharth Malhotra","Kartik Aaryan","Aditya Roy Kapoor"]},
+  {id:5,name:"Krishnaraj Rai",handle:"krishnaraj_rai",followers:89000,des:"Senior",collabs:["Ranveer Singh","Ranbir Kapoor","Ayushmann Khurrana","Kartik Aaryan","Tiger Shroff"]},
+  {id:6,name:"Zara Sheikh",handle:"zarasheikh.style",followers:63000,des:"Junior",collabs:["Diljit Dosanjh","Badshah","AP Dhillon","Guru Randhawa","Harrdy Sandhu"]},
+  {id:7,name:"Neel Chauhan",handle:"neelcstyle",followers:88000,des:"Junior",collabs:["KL Rahul","Hardik Pandya","Rohit Sharma","Shubman Gill","Ishan Kishan"]},
+  {id:8,name:"Tanisha Bose",handle:"tanishabosestyle",followers:82000,des:"Senior",collabs:["Arijit Singh","Jubin Nautiyal","Armaan Malik","Darshan Raval","B Praak"]},
+  {id:9,name:"Mihir Dave",handle:"mihir.dave.style",followers:58000,des:"Junior",collabs:["Dulquer Salmaan","Tovino Thomas","Nivin Pauly","Fahad Fazil","Mohanlal"]},
+  {id:10,name:"Siddharth Arora",handle:"sidarora.fashion",followers:54000,des:"Junior",collabs:["Vijay Deverakonda","Ram Charan","NTR Jr","Allu Arjun","Prabhas"]},
+  {id:11,name:"Radhika Mehra",handle:"radhika.stylist",followers:78000,des:"Junior",collabs:["Kartik Aaryan","Tiger Shroff","Ishaan Khattar","Adarsh Gourav","Vijay Varma"]},
+  {id:12,name:"Aakash Mehta",handle:"aakashmstyle",followers:52000,des:"Junior",collabs:["Ayushmann Khurrana","Rajkummar Rao","Jaideep Ahlawat","Manoj Bajpayee","Nawazuddin"]},
+  {id:13,name:"Priya Dewan",handle:"priyadewan.style",followers:145000,des:"Senior",collabs:["Ranbir Kapoor","Aamir Khan","Hrithik Roshan","Farhan Akhtar","Siddhanth Chaturvedi"]},
+  {id:14,name:"Aryan Khosla",handle:"aryankhosla.style",followers:93000,des:"Senior",collabs:["Salman Khan","Sohail Khan","Arbaaz Khan","Kamaal Khan","Zaheer Iqbal"]},
+  {id:15,name:"Karan Ahuja",handle:"karanahuja.fashion",followers:61000,des:"Junior",collabs:["Kapil Sharma","Sunil Grover","Krushna Abhishek","Kiku Sharda","Bharti's Husband"]},
+  {id:16,name:"Divya Kapoor",handle:"divyakstyles",followers:112000,des:"Senior",collabs:["Varun Dhawan","Arjun Kapoor","Aparshakti Khurana","Varun Sharma","Jitendra Kumar"]},
+  {id:17,name:"Shreya Jain",handle:"shreyajain.style",followers:71000,des:"Junior",collabs:["Ranveer Singh","Aparshakti Khurana","Varun Sharma","Abhishek Banerjee","Saurav Lokesh"]},
+  {id:18,name:"Anisha Oberoi",handle:"anishaoberostyle",followers:97000,des:"Senior",collabs:["Hrithik Roshan","Tiger Shroff","Shahid Kapoor","Aditya Roy Kapoor","Ranbir Kapoor"]},
+  {id:19,name:"Kabir Nagpal",handle:"kabirnagpal",followers:74000,des:"Junior",collabs:["Punjabi Singers","Karan Aujla","Sidhu Moosewala","Jus Reign","King"]},
+  {id:20,name:"Meera Rajkumar",handle:"meerarajkstyle",followers:68000,des:"Senior",collabs:["Rajkummar Rao","Pankaj Tripathi","Manoj Bajpayee","Nawazuddin Siddiqui","Irrfan Khan"]},
+];
+
+const STATUS_LIST = [
+  {key:"contacted",label:"✅ Contacted",bg:"#D1FAE5",color:"#065F46"},
+  {key:"ongoing",label:"🔄 Ongoing",bg:"#DBEAFE",color:"#1E40AF"},
+  {key:"ghosted",label:"👻 Ghosted",bg:"#F3F4F6",color:"#374151"},
+  {key:"rejected",label:"❌ Rejected",bg:"#FFE4E8",color:"#9B1C4A"},
+  {key:"already_contacted",label:"📌 Already Done",bg:"#FEF3C7",color:"#92400E"},
+];
+
+const DES_FILTERS = ["All","Senior","Junior"];
+
+function StylerCRM() {
+  const [statuses, setStatuses] = useState({});
+  const [desFilter, setDesFilter] = useState("All");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [search, setSearch] = useState("");
+  const [openMenu, setOpenMenu] = useState(null);
+  const menuRef = useRef(null);
+
+  const today = new Date().toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
+
+  useEffect(() => {
+    const handler = e => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) setOpenMenu(null);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const markStatus = (id, key) => {
+    setStatuses(prev => ({...prev, [id]: prev[id] === key ? null : key}));
+    setOpenMenu(null);
+  };
+
+  const stats = {
+    total: STYLISTS.length,
+    contacted: Object.values(statuses).filter(v=>v==="contacted").length,
+    ongoing: Object.values(statuses).filter(v=>v==="ongoing").length,
+    ghosted: Object.values(statuses).filter(v=>v==="ghosted").length,
+    rejected: Object.values(statuses).filter(v=>v==="rejected").length,
+    already: Object.values(statuses).filter(v=>v==="already_contacted").length,
+    pending: STYLISTS.length - Object.values(statuses).filter(Boolean).length,
+  };
+
+  const filtered = STYLISTS.filter(s => {
+    if (desFilter !== "All" && s.des !== desFilter) return false;
+    if (statusFilter !== "all" && statuses[s.id] !== statusFilter) return false;
+    if (search && !s.name.toLowerCase().includes(search.toLowerCase()) && !s.handle.toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  });
+
+  const sendWhatsApp = () => {
+    const d = new Date().toLocaleDateString("en-IN",{day:"numeric",month:"long",year:"numeric"});
+    let msg = `✨ *StylerCRM — Daily List*\n📅 ${d}\n${"─".repeat(25)}\n\n`;
+    STYLISTS.forEach((s,i)=>{
+      msg += `${i+1}. *${s.name}* · ${s.des}\n`;
+      msg += `   📱 instagram.com/${s.handle}\n`;
+      msg += `   👥 ${fmt(s.followers)} followers\n`;
+      msg += `   🎬 ${s.collabs.slice(0,3).join(" · ")}\n\n`;
+    });
+    window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`,"_blank");
+  };
+
+  function StatusBadge({id}) {
+    const cur = statuses[id];
+    const info = STATUS_LIST.find(s=>s.key===cur);
+    return (
+      <div style={{position:"relative"}} ref={openMenu===id ? menuRef : null}>
+        {info ? (
+          <div style={{display:"flex",gap:6}}>
+            <div style={{flex:1,background:info.bg,color:info.color,borderRadius:10,padding:"6px 10px",fontSize:11,fontWeight:700,textAlign:"center"}}>{info.label}</div>
+            <button onClick={()=>setOpenMenu(openMenu===id?null:id)} style={{background:"#F0E8FF",border:"none",borderRadius:10,padding:"6px 10px",cursor:"pointer",fontSize:11,color:"#7C3AED",fontWeight:700}}>↓</button>
+          </div>
+        ) : (
+          <button onClick={()=>setOpenMenu(openMenu===id?null:id)} style={{width:"100%",background:"#F8F5FF",border:"1.5px dashed #C4B5FD",borderRadius:10,padding:"7px",cursor:"pointer",fontSize:12,color:"#A78BFA",fontWeight:600}}>
+            + Mark Status
+          </button>
+        )}
+        {openMenu===id && (
+          <div style={{position:"absolute",bottom:"calc(100% + 4px)",left:0,right:0,background:"white",borderRadius:12,boxShadow:"0 8px 32px rgba(100,50,200,0.15)",overflow:"hidden",border:"1px solid #EDE9FE",zIndex:50}}>
+            {STATUS_LIST.map(s=>(
+              <button key={s.key} onClick={()=>markStatus(id,s.key)} style={{display:"block",width:"100%",padding:"9px 14px",background:cur===s.key?s.bg:"white",color:s.color,border:"none",textAlign:"left",cursor:"pointer",fontSize:12,fontWeight:600,borderBottom:"1px solid #F5F3FF"}}>
+                {s.label}{cur===s.key?" ✓":""}
+              </button>
+            ))}
+            {cur && <button onClick={()=>markStatus(id,null)} style={{display:"block",width:"100%",padding:"9px 14px",background:"white",color:"#EF4444",border:"none",textAlign:"left",cursor:"pointer",fontSize:12,fontWeight:500}}>🗑 Clear</button>}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{minHeight:"100vh",background:"linear-gradient(135deg,#FBF7FF 0%,#FFF5FB 100%)",fontFamily:"'Segoe UI',system-ui,sans-serif",color:"#1A1A2E"}}>
+
+      <div style={{background:"white",borderBottom:"1.5px solid #F0E8FF",padding:"14px 20px",position:"sticky",top:0,zIndex:100,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+        <div>
+          <div style={{fontWeight:900,fontSize:20,background:"linear-gradient(120deg,#A78BFA,#F472B6,#FB923C)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>✨ StylerCRM</div>
+          <div style={{fontSize:11,color:"#9CA3AF",fontWeight:500}}>Indian Menswear Stylist Research Tool</div>
+        </div>
+        <button onClick={sendWhatsApp} style={{background:"#22C55E",color:"white",border:"none",borderRadius:20,padding:"8px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>📲 WhatsApp</button>
+      </div>
+
+      <div style={{padding:"12px 20px 0"}}>
+        <div style={{fontSize:13,color:"#6B7280",fontWeight:500}}>📅 {today}</div>
+      </div>
+
+      <div style={{padding:"12px 20px",display:"flex",gap:8,overflowX:"auto"}}>
+        {[
+          {label:"Total",val:stats.total,bg:"#EDE9FE",c:"#5B21B6",icon:"📋"},
+          {label:"Pending",val:stats.pending,bg:"#FFF7ED",c:"#C2410C",icon:"⏳"},
+          {label:"Contacted",val:stats.contacted,bg:"#D1FAE5",c:"#065F46",icon:"✅"},
+          {label:"Ongoing",val:stats.ongoing,bg:"#DBEAFE",c:"#1E40AF",icon:"🔄"},
+          {label:"Ghosted",val:stats.ghosted,bg:"#F3F4F6",c:"#374151",icon:"👻"},
+          {label:"Rejected",val:stats.rejected,bg:"#FFE4E8",c:"#9B1C4A",icon:"❌"},
+        ].map(s=>(
+          <div key={s.label} style={{background:s.bg,borderRadius:14,padding:"10px 14px",minWidth:80,textAlign:"center",flexShrink:0}}>
+            <div style={{fontSize:16}}>{s.icon}</div>
+            <div style={{fontSize:20,fontWeight:900,color:s.c,lineHeight:1.2}}>{s.val}</div>
+            <div style={{fontSize:10,color:"#6B7280",fontWeight:600}}>{s.label}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{padding:"8px 20px 12px",display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+        <input placeholder="🔍 Search..." value={search} onChange={e=>setSearch(e.target.value)}
+          style={{border:"1.5px solid #E5E7EB",borderRadius:20,padding:"7px 14px",fontSize:13,outline:"none",width:150,background:"white"}} />
+        {DES_FILTERS.map(d=>(
+          <button key={d} onClick={()=>setDesFilter(d)} style={{background:desFilter===d?"#A78BFA":"white",color:desFilter===d?"white":"#6B7280",border:"1.5px solid "+(desFilter===d?"#A78BFA":"#E5E7EB"),borderRadius:20,padding:"6px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+            {d}
+          </button>
+        ))}
+        <select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)} style={{border:"1.5px solid #E5E7EB",borderRadius:20,padding:"6px 12px",fontSize:12,color:"#6B7280",outline:"none",background:"white",cursor:"pointer"}}>
+          <option value="all">All Statuses</option>
+          {STATUS_LIST.map(s=><option key={s.key} value={s.key}>{s.label}</option>)}
+        </select>
+        <div style={{marginLeft:"auto",fontSize:12,color:"#9CA3AF"}}>{filtered.length} stylists</div>
+      </div>
+
+      <div style={{padding:"0 20px 32px",display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(290px,1fr))",gap:14}}>
+        {filtered.map((s,idx)=>{
+          const ac = AVATAR_COLORS[idx % AVATAR_COLORS.length];
+          return (
+            <div key={s.id} style={{background:"white",borderRadius:20,padding:18,boxShadow:"0 2px 16px rgba(167,139,250,0.08)",border:"1.5px solid #F0E8FF"}}>
+              <div style={{display:"flex",gap:12,alignItems:"flex-start",marginBottom:12}}>
+                <div style={{width:48,height:48,borderRadius:"50%",background:ac,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,fontWeight:900,flexShrink:0}}>
+                  {initials(s.name)}
+                </div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontWeight:800,fontSize:14,color:"#111827"}}>{s.name}</div>
+                  <a href={`https://instagram.com/${s.handle}`} target="_blank" rel="noopener noreferrer"
+                    style={{fontSize:12,color:"#A78BFA",textDecoration:"none",fontWeight:600}}>
+                    @{s.handle} ↗
+                  </a>
+                </div>
+                <span style={{background:s.des==="Senior"?"#EDE9FE":"#DBEAFE",color:s.des==="Senior"?"#5B21B6":"#1E40AF",borderRadius:10,padding:"3px 9px",fontSize:10,fontWeight:800,flexShrink:0}}>
+                  {s.des}
+                </span>
+              </div>
+
+              <div style={{display:"inline-flex",alignItems:"center",gap:5,background:"#FEF9C3",borderRadius:10,padding:"4px 10px",fontSize:11,fontWeight:700,color:"#854D0E",marginBottom:12}}>
+                👥 {fmt(s.followers)} followers
+              </div>
+
+              <div style={{marginBottom:14}}>
+                <div style={{fontSize:10,fontWeight:700,color:"#9CA3AF",letterSpacing:0.5,marginBottom:5}}>🎬 CELEB COLLABS</div>
+                <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+                  {s.collabs.map(c=>(
+                    <span key={c} style={{background:"#FFF0F7",border:"1px solid #FCE7F3",borderRadius:8,padding:"2px 8px",fontSize:10,color:"#6B7280",fontWeight:500}}>{c}</span>
+                  ))}
+                </div>
+              </div>
+
+              <StatusBadge id={s.id} />
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<StylerCRM />);
+</script>
 </body>
 </html>
