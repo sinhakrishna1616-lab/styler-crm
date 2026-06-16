@@ -11,19 +11,23 @@ export default async (req, context) => {
 
   const istTime = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
 
+  const apifyStatus = APIFY_TOKEN
+    ? `Set (${APIFY_TOKEN.slice(0,8)}...)`
+    : "NOT SET — please add APIFY_TOKEN in Netlify dashboard";
+
   const msg = [
-    "✅ *StylerCRM Test Message*",
+    "✅ StylerCRM Test Message",
     "",
-    `🕐 Time (IST): ${istTime}`,
+    `Time (IST): ${istTime}`,
     "",
-    `🔑 TELEGRAM\\_TOKEN: ${TELEGRAM_TOKEN ? "✅ Set (" + TELEGRAM_TOKEN.slice(0,10) + "...)" : "❌ MISSING"}`,
-    `🔑 TELEGRAM\\_CHAT\\_ID: ${TELEGRAM_CHAT_ID ? "✅ Set" : "❌ MISSING"}`,
-    `🔑 APIFY\\_TOKEN: ${APIFY_TOKEN ? "✅ Set (" + APIFY_TOKEN.slice(0,8) + "...)" : "⚠️ NOT SET — add it in Netlify dashboard"}`,
+    `TELEGRAM_TOKEN: ${TELEGRAM_TOKEN ? "Set" : "MISSING"}`,
+    `TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID ? "Set" : "MISSING"}`,
+    `APIFY_TOKEN: ${apifyStatus}`,
     "",
-    "🎉 Your StylerCRM daily delivery system is live!",
-    "📅 Real data will arrive every day at *8:00 AM IST*",
+    "Your StylerCRM daily delivery system is live!",
+    "Real data will arrive every day at 8:00 AM IST",
     "",
-    "🔗 https://boisterous\\-empanada\\-fc858b\\.netlify\\.app/",
+    "https://boisterous-empanada-fc858b.netlify.app/",
   ].join("\n");
 
   if (!TELEGRAM_TOKEN || !TELEGRAM_CHAT_ID) {
@@ -39,7 +43,7 @@ export default async (req, context) => {
     body: JSON.stringify({
       chat_id: TELEGRAM_CHAT_ID,
       text: msg,
-      parse_mode: "MarkdownV2",
+      parse_mode: "HTML",
       disable_web_page_preview: true,
     }),
   });
