@@ -134,6 +134,33 @@ function getDesignation(followers) {
   return "Intern";
 }
 
+/** Check if account looks like a real person (not a bot/brand/spam) */
+function isRealPerson(profile) {
+  const bio = (profile.biography || "");
+  const username = (profile.username || "").toLowerCase();
+  const fullName = (profile.fullName || "");
+
+  // Reject if no posts at all
+  if ((profile.postsCount || 0) < 6) return false;
+
+  // Reject obvious bots: username has excessive numbers/underscores
+  if (/[0-9]{5,}/.test(username)) return false;
+  if ((username.match(/_/g) || []).length > 4) return false;
+
+  // Reject if following way more than followers (ratio > 5:1 with >1000 following) — spam signal
+  const followers = profile.followersCount || 0;
+  const following = profile.followingCount || 0;
+  if (following > 1000 && following > followers * 5) return false;
+
+  // Reject accounts with zero bio — real stylists always have bios
+  if (bio.trim().length < 10) return false;
+
+  // Reject if fullName looks auto-generated (all numbers or very short)
+  if (!fullName || fullName.length < 3) return false;
+
+  return true;
+}
+
 /** Check if the profile is likely a male-celebrity stylist */
 function isMaleStylist(profile) {
   const bio = (profile.biography || "").toLowerCase();
@@ -191,14 +218,29 @@ async function sendTelegram(text) {
         body: JSON.stringify({
           chat_id: TELEGRAM_CHAT_ID,
           text: chunk,
-          parse_mode: "Markdown",
+          parse_mode: "HTML",
           disable_web_page_preview: true,
         }),
       }
     );
     const json = await res.json().catch(() => ({}));
     if (!json.ok) {
-      console.error("[Telegram] Send failed:", JSON.stringify(json));
+      // If HTML mode fails, retry as plain text
+      console.error("[Telegram] HTML send failed, retrying plain:", JSON.stringify(json));
+      const res2 = await fetch(
+        `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chat_id: TELEGRAM_CHAT_ID,
+            text: chunk.replace(/<[^>]+>/g, ""),
+            disable_web_page_preview: true,
+          }),
+        }
+      );
+      const j2 = await res2.json().catch(() => ({}));
+      if (j2.ok) console.log("[Telegram] Fallback plain send OK");
     } else {
       console.log("[Telegram] Chunk sent OK");
     }
@@ -296,6 +338,7 @@ export default async (req, context) => {
 
       const followers = profile.followersCount || 0;
       if (followers < 50_000) continue;            // Must have 50K+ followers
+      if (!isRealPerson(profile)) continue;         // Must look like a real human account
       if (!isActive(profile)) continue;             // Must have posted in 30 days
       if (!isMaleStylist(profile)) continue;        // Must look like male stylist
 
@@ -389,15 +432,15 @@ export default async (req, context) => {
     ? "🟢 Live scraped from Instagram"
     : "🟡 Cached list (Apify unavailable today — will retry tomorrow)";
 
-  let msg = `✨ *StylerCRM — Daily Stylist List*\n`;
+  let msg = `✨ <b>StylerCRM — Daily Stylist List</b>\n`;
   msg += `📅 ${dateStr}\n`;
   msg += `${sourceNote}\n`;
-  msg += `${"─".repeat(28)}\n\n`;
+  msg += `${"-".repeat(28)}\n\n`;
 
   stylists.forEach((s, i) => {
-    const igLink = `https://instagram.com/${s.handle}`;
-    msg += `*${i + 1}. ${s.name}*  ·  ${s.des}\n`;
-    msg += `   📱 [instagram.com/${s.handle}](${igLink})\n`;
+    const igLink = `https://www.instagram.com/${s.handle}/`;
+    msg += `<b>${i + 1}. ${s.name}</b>  ·  ${s.des}\n`;
+    msg += `   📱 <a href="${igLink}">instagram.com/${s.handle}</a>\n`;
     msg += `   👥 ${fmt(s.followers)} followers\n`;
     if (s.collabs && s.collabs.filter((c) => c !== "Celebrity Stylist").length > 0) {
       msg += `   🎬 ${s.collabs.slice(0, 3).join(" · ")}\n`;
