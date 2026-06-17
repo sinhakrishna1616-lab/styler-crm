@@ -34,8 +34,8 @@ const CURATED = [
   { name:"Anaita Shroff Adajania",handle:"anaitashroffadajania",  followers:198000, des:"Senior", collabs:["Shah Rukh Khan","Farhan Akhtar","Ranbir Kapoor"] },
   { name:"Priya Dewan",           handle:"priyadewan.style",      followers:145000, des:"Senior", collabs:["Hrithik Roshan","Ranbir Kapoor","Farhan Akhtar"] },
   { name:"Abhilasha Devnani",     handle:"abhilashadevnani",      followers:124000, des:"Senior", collabs:["Vicky Kaushal","Sidharth Malhotra","Ranveer Singh"] },
-  { name:"Sukruti Grover",        handle:"sukritigrover",         followers:178000, des:"Senior", collabs:["Ranveer Singh","Ranbir Kapoor","Aditya Roy Kapoor"] },
-  { name:"Poornamrtia Singh",     handle:"poornamrtasingh",       followers:156000, des:"Senior", collabs:["Ranveer Singh","Ranbir Kapoor","Vicky Kaushal"] },
+  { name:"Sukriti Grover",         handle:"sukritigrover",         followers:178000, des:"Senior", collabs:["Ranveer Singh","Ranbir Kapoor","Aditya Roy Kapoor"] },
+  { name:"Poornamrta Singh",      handle:"poornamrtasingh",       followers:156000, des:"Senior", collabs:["Ranveer Singh","Ranbir Kapoor","Vicky Kaushal"] },
   { name:"Maneka Harisinghani",   handle:"manekaharisinghani",    followers:143000, des:"Senior", collabs:["Shah Rukh Khan","Aamir Khan","Saif Ali Khan"] },
   { name:"Sheefa J Gilani",       handle:"sheefajgilani",         followers:127000, des:"Senior", collabs:["Salman Khan","Arbaaz Khan","Sohail Khan"] },
   { name:"Divya Kapoor",          handle:"divyakstyles",          followers:112000, des:"Senior", collabs:["Varun Dhawan","Arjun Kapoor","Aparshakti Khurana"] },
@@ -65,7 +65,7 @@ const CURATED = [
   { name:"Kabir Nagpal",          handle:"kabirnagpal",           followers:74000,  des:"Junior", collabs:["Karan Aujla","AP Dhillon","King"] },
   { name:"Dev Narayan",           handle:"devnarayan.style",      followers:62000,  des:"Junior", collabs:["Vicky Kaushal","Sunny Kaushal"] },
   { name:"Karan Ahuja",           handle:"karanahuja.fashion",    followers:61000,  des:"Junior", collabs:["Kapil Sharma","Sunil Grover"] },
-  { name:"Aadi Pinkcity",         handle:"aadiPinkcity",          followers:68000,  des:"Junior", collabs:["Diljit Dosanjh","Ammy Virk","Gippy Grewal"] },
+  { name:"Aadi Pinkcity",         handle:"aadipinkcity",          followers:68000,  des:"Junior", collabs:["Diljit Dosanjh","Ammy Virk","Gippy Grewal"] },
   { name:"Mohit Rai",             handle:"mohitraistylist",       followers:67000,  des:"Junior", collabs:["Salman Khan","Sanjay Dutt","Bobby Deol"] },
   { name:"Mihir Dave",            handle:"mihir.dave.style",      followers:58000,  des:"Junior", collabs:["Dulquer Salmaan","Tovino Thomas","Fahadh Faasil"] },
   { name:"Eka Lakhani",           handle:"ekalakhani",            followers:76000,  des:"Junior", collabs:["Vicky Kaushal","Sidharth Malhotra"] },
@@ -77,6 +77,10 @@ const CURATED = [
   { name:"Chanchal Garg",         handle:"chanchal.garg.style",   followers:55000,  des:"Junior", collabs:["Ajay Devgn","Suniel Shetty"] },
   { name:"Shreeya Parikh",        handle:"shreeyaparikh.style",   followers:43000,  des:"Intern", collabs:["Pratik Gandhi","Ravi Bhatia"] },
   { name:"Misha Jannat",          handle:"misha_jannat",          followers:48000,  des:"Intern", collabs:["Jatin Sarna","Jitendra Kumar","Vijay Varma"] },
+  { name:"Payal Jagwani",         handle:"payaljagwani",          followers:38000,  des:"Intern", collabs:["Mohsin Khan","Parth Samthaan"] },
+  { name:"Riya Mehta",            handle:"riya.mehta.style",      followers:35000,  des:"Intern", collabs:["Darshan Raval","Tony Kakkar"] },
+  { name:"Simran Khanna",         handle:"simrankhanna.style",    followers:41000,  des:"Intern", collabs:["Karan Wahi","Ssharad Malhotra"] },
+  { name:"Anushka Joshi",         handle:"anushkajoshi.fashion",  followers:33000,  des:"Intern", collabs:["Rohan Mehra","Vishal Aditya Singh"] },
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -218,15 +222,41 @@ export default async (req, context) => {
   const alreadySent = new Set(Object.keys(sentHistory));
   console.log(`[History] ${alreadySent.size} handles sent in last 30 days`);
 
-  // ── Build daily list from curated, shuffled by date seed ─────────────────
+  // ── Build balanced daily list: 5 Senior + 8 Junior + 2 Intern ───────────
   const today = new Date();
   const seed  = today.getUTCFullYear() * 1000 + Math.floor((today - new Date(today.getUTCFullYear(), 0, 0)) / 86400000);
 
-  const unsentCurated = CURATED.filter(s => !alreadySent.has(s.handle.toLowerCase()));
-  const shuffled      = seededShuffle(unsentCurated, seed);
-  const todayList     = shuffled.slice(0, 15).map((s, i) => ({ ...s, id: i + 1 }));
+  // Filter unsent by category
+  let unsentSenior = CURATED.filter(s => s.des === "Senior" && !alreadySent.has(s.handle.toLowerCase()));
+  let unsentJunior = CURATED.filter(s => s.des === "Junior" && !alreadySent.has(s.handle.toLowerCase()));
+  let unsentIntern = CURATED.filter(s => s.des === "Intern" && !alreadySent.has(s.handle.toLowerCase()));
 
-  console.log(`[List] ${todayList.length} stylists (from curated, unsent pool: ${unsentCurated.length})`);
+  // Auto-reset a category if it's exhausted
+  if (unsentSenior.length < 3) {
+    console.log("[History] Senior pool exhausted — resetting senior history");
+    unsentSenior = CURATED.filter(s => s.des === "Senior");
+    for (const s of unsentSenior) delete sentHistory[s.handle.toLowerCase()];
+  }
+  if (unsentJunior.length < 5) {
+    console.log("[History] Junior pool exhausted — resetting junior history");
+    unsentJunior = CURATED.filter(s => s.des === "Junior");
+    for (const s of unsentJunior) delete sentHistory[s.handle.toLowerCase()];
+  }
+  if (unsentIntern.length < 2) {
+    console.log("[History] Intern pool exhausted — resetting intern history");
+    unsentIntern = CURATED.filter(s => s.des === "Intern");
+    for (const s of unsentIntern) delete sentHistory[s.handle.toLowerCase()];
+  }
+
+  // Seeded shuffle each category separately for variety
+  const picks = [
+    ...seededShuffle(unsentSenior, seed).slice(0, 5),
+    ...seededShuffle(unsentJunior, seed + 1).slice(0, 8),
+    ...seededShuffle(unsentIntern, seed + 2).slice(0, 2),
+  ];
+  const todayList = picks.map((s, i) => ({ ...s, id: i + 1 }));
+
+  console.log(`[List] ${todayList.length} stylists — Senior:${picks.filter(s=>s.des==="Senior").length} Junior:${picks.filter(s=>s.des==="Junior").length} Intern:${picks.filter(s=>s.des==="Intern").length}`);
 
 
   // Update sent history
