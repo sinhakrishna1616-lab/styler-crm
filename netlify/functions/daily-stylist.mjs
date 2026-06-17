@@ -112,7 +112,7 @@ async function sendTelegram(text) {
   }
 }
 
-/** Send WhatsApp via Twilio Sandbox */
+/** Send WhatsApp via Twilio — splits long messages into chunks */
 async function sendWhatsAppTwilio(text) {
   const SID   = process.env.TWILIO_SID;
   const TOKEN = process.env.TWILIO_TOKEN;
@@ -121,16 +121,35 @@ async function sendWhatsAppTwilio(text) {
   if (!SID || !TOKEN) { console.warn("[WhatsApp] No Twilio creds — skipping"); return; }
 
   const creds = btoa(`${SID}:${TOKEN}`);
-  const form  = new URLSearchParams({ From: FROM, To: TO, Body: text }).toString();
+  const url   = `https://api.twilio.com/2010-04-01/Accounts/${SID}/Messages.json`;
 
-  const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${SID}/Messages.json`, {
-    method:  "POST",
-    headers: { "Authorization": `Basic ${creds}`, "Content-Type": "application/x-www-form-urlencoded" },
-    body:    form,
-  });
-  const j = await res.json().catch(() => ({}));
-  if (res.ok) console.log("[WhatsApp] Sent! sid:", j.sid, "status:", j.status);
-  else console.error("[WhatsApp] Failed:", JSON.stringify(j));
+  // Split into ≤1500 char chunks (Twilio WA limit is 1600)
+  const chunks = [];
+  const lines  = text.split("\n");
+  let   chunk  = "";
+  for (const line of lines) {
+    if ((chunk + line + "\n").length > 1500) {
+      if (chunk) chunks.push(chunk.trim());
+      chunk = line + "\n";
+    } else {
+      chunk += line + "\n";
+    }
+  }
+  if (chunk.trim()) chunks.push(chunk.trim());
+
+  console.log(`[WhatsApp] Sending ${chunks.length} chunk(s)...`);
+  for (let i = 0; i < chunks.length; i++) {
+    const form = new URLSearchParams({ From: FROM, To: TO, Body: chunks[i] }).toString();
+    const res  = await fetch(url, {
+      method:  "POST",
+      headers: { "Authorization": `Basic ${creds}`, "Content-Type": "application/x-www-form-urlencoded" },
+      body:    form,
+    });
+    const j = await res.json().catch(() => ({}));
+    if (res.ok) console.log(`[WhatsApp] Chunk ${i+1}/${chunks.length} sent — sid: ${j.sid}`);
+    else console.error(`[WhatsApp] Chunk ${i+1} failed:`, JSON.stringify(j));
+    if (i < chunks.length - 1) await sleep(1500); // small delay between messages
+  }
 }
 
 
