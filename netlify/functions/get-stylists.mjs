@@ -135,35 +135,11 @@ export default async (req, context) => {
 
   // ── GET: return today's list + statuses ─────────────────────────────────────
   try {
-    // Try Blobs first (if daily-stylist saved fresh data there)
-    let stylists  = null;
-    let updatedAt = null;
-    let source    = "curated";
-
-    try {
-      const dataStore = getStore("stylist-data");
-      const cached    = await dataStore.getJSON("today");
-      if (cached && Array.isArray(cached.stylists) && cached.stylists.length > 0) {
-        // Only use Blobs if data is from today (within last 12 hours)
-        const ageMs   = Date.now() - (cached.updatedAt || 0);
-        const isFresh = ageMs < 12 * 60 * 60 * 1000;
-        if (isFresh) {
-          stylists  = cached.stylists;
-          updatedAt = cached.updatedAt;
-          source    = cached.source || "curated";
-        } else {
-          console.log("[get-stylists] Blobs data stale, using live computation");
-        }
-      }
-    } catch (e) {
-      console.warn("[get-stylists] Blobs read failed, using rotation:", e.message);
-    }
-
-    // Fallback: compute today's balanced 15 from curated list
-    if (!stylists) {
-      stylists = getTodaysCurated();
-      source   = "curated";
-    }
+    // Always compute fresh balanced list (5 Senior + 8 Junior + 2 Intern)
+    // This guarantees correct mix regardless of any stale Blobs data
+    const stylists  = getTodaysCurated();
+    const updatedAt = Date.now();
+    const source    = "curated";
 
     // Load all statuses
     const statuses = {};
