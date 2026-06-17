@@ -112,25 +112,27 @@ async function sendTelegram(text) {
   }
 }
 
-/** Send email via Resend (free, 3000/month, guaranteed inbox delivery) */
-async function sendEmail(subject, htmlBody, plainBody) {
-  const RESEND_KEY = process.env.RESEND_API_KEY;
-  if (!RESEND_KEY) { console.warn("[Email] No RESEND_API_KEY — skipping"); return; }
-  const res = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: { "Authorization": `Bearer ${RESEND_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      from:    "StylerCRM <onboarding@resend.dev>",
-      to:      [EMAIL_TO],
-      subject,
-      html:    htmlBody,
-      text:    plainBody,
-    }),
+/** Send WhatsApp via Twilio Sandbox */
+async function sendWhatsAppTwilio(text) {
+  const SID   = process.env.TWILIO_SID;
+  const TOKEN = process.env.TWILIO_TOKEN;
+  const FROM  = "whatsapp:+14155238886";
+  const TO    = "whatsapp:+919905894701";
+  if (!SID || !TOKEN) { console.warn("[WhatsApp] No Twilio creds — skipping"); return; }
+
+  const creds = btoa(`${SID}:${TOKEN}`);
+  const form  = new URLSearchParams({ From: FROM, To: TO, Body: text }).toString();
+
+  const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${SID}/Messages.json`, {
+    method:  "POST",
+    headers: { "Authorization": `Basic ${creds}`, "Content-Type": "application/x-www-form-urlencoded" },
+    body:    form,
   });
   const j = await res.json().catch(() => ({}));
-  if (res.ok) console.log("[Email] Resend OK! id:", j.id);
-  else console.error("[Email] Resend failed:", JSON.stringify(j));
+  if (res.ok) console.log("[WhatsApp] Sent! sid:", j.sid, "status:", j.status);
+  else console.error("[WhatsApp] Failed:", JSON.stringify(j));
 }
+
 
 
 /** Send WhatsApp via CallMeBot */
@@ -340,9 +342,8 @@ ${todayList.map((s, i) => `
 
   // Send all channels in parallel
   await Promise.allSettled([
+    sendWhatsAppTwilio(plainMsg),
     sendTelegram(htmlMsg),
-    sendWhatsApp(plainMsg),
-    sendEmail(`StylerCRM — ${todayList.length} New Stylists Today`, emailHtml, plainMsg),
   ]);
 
   console.log("=== Run complete ===");
