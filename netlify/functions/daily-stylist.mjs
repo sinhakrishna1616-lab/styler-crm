@@ -89,29 +89,62 @@ const fmt = (n) =>
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/** Call an Apify actor synchronously and return dataset items */
-async function runApify(actorId, input, timeoutSecs = 120) {
+/**
+ * Start an Apify actor run and POLL until complete (avoids sync timeout issues).
+ * Uses the async /runs endpoint then polls /runs/:id for status.
+ */
+async function runApify(actorId, input, maxWaitSecs = 300) {
   if (!APIFY_TOKEN) throw new Error("APIFY_TOKEN not set");
 
-  const url = `${APIFY_BASE}/${encodeURIComponent(actorId)}/run-sync-get-dataset-items` +
-    `?token=${APIFY_TOKEN}&timeout=${timeoutSecs}&memory=256`;
+  // 1. Start run (async, returns immediately)
+  const startUrl = `${APIFY_BASE}/${encodeURIComponent(actorId)}/runs?token=${APIFY_TOKEN}&memory=256`;
+  console.log(`[Apify] Starting ${actorId} ...`);
 
-  console.log(`[Apify] Calling ${actorId} …`);
-
-  const res = await fetch(url, {
+  const startRes = await fetch(startUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
-
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`Apify ${actorId} HTTP ${res.status}: ${body.slice(0, 200)}`);
+  if (!startRes.ok) {
+    const body = await startRes.text().catch(() => "");
+    throw new Error(`Apify start ${actorId} HTTP ${startRes.status}: ${body.slice(0, 200)}`);
   }
+  const startJson = await startRes.json();
+  const runId = startJson.data?.id;
+  if (!runId) throw new Error(`No runId returned from Apify for ${actorId}`);
+  console.log(`[Apify] Run started: ${runId}`);
 
-  const data = await res.json();
-  console.log(`[Apify] ${actorId} returned ${Array.isArray(data) ? data.length : "?"} items`);
-  return Array.isArray(data) ? data : [];
+  // 2. Poll run status until SUCCEEDED or timeout
+  const deadline = Date.now() + maxWaitSecs * 1000;
+  let status = "RUNNING";
+  while (Date.now() < deadline) {
+    await sleep(5000); // check every 5 seconds
+    const pollRes = await fetch(
+      `https://api.apify.com/v2/actor-runs/${runId}?token=${APIFY_TOKEN}`
+    );
+    if (!pollRes.ok) { console.warn("[Apify] Poll failed, retrying..."); continue; }
+    const pollJson = await pollRes.json();
+    status = pollJson.data?.status || "UNKNOWN";
+    console.log(`[Apify] ${actorId} run status: ${status}`);
+    if (status === "SUCCEEDED") break;
+    if (["FAILED", "ABORTED", "TIMED-OUT"].includes(status)) {
+      throw new Error(`Apify run ${runId} ended with: ${status}`);
+    }
+  }
+  if (status !== "SUCCEEDED") throw new Error(`Apify run ${runId} timed out waiting (${maxWaitSecs}s)`);
+
+  // 3. Fetch dataset items
+  const datasetId = (await (await fetch(
+    `https://api.apify.com/v2/actor-runs/${runId}?token=${APIFY_TOKEN}`
+  )).json()).data?.defaultDatasetId;
+
+  const itemsRes = await fetch(
+    `https://api.apify.com/v2/datasets/${datasetId}/items?token=${APIFY_TOKEN}&format=json&clean=true`
+  );
+  if (!itemsRes.ok) throw new Error(`Failed to fetch dataset items: ${itemsRes.status}`);
+  const items = await itemsRes.json();
+  console.log(`[Apify] ${actorId} returned ${Array.isArray(items) ? items.length : "?"} items`);
+  return Array.isArray(items) ? items : [];
 }
 
 /** Extract celeb names mentioned in a text string */
@@ -290,7 +323,7 @@ export default async (req, context) => {
 
     const hashtagItems = await runApify("apify/instagram-hashtag-scraper", {
       hashtags: HASHTAGS,
-      resultsLimit: 150,
+      resultsLimit: 30,   // 30 posts → ~15-20 unique owners
       proxy: { useApifyProxy: true, apifyProxyGroups: ["RESIDENTIAL"] },
     }, 180);
 
@@ -311,15 +344,15 @@ export default async (req, context) => {
 
     if (ownerMap.size === 0) throw new Error("No new owners from hashtag scrape");
 
-    // Take up to 120 candidates for profile scraping
-    const candidates = [...ownerMap.keys()].slice(0, 120);
+    // Take up to 15 candidates for profile scraping
+    const candidates = [...ownerMap.keys()].slice(0, 15);
 
     // ── Step 4: Profile scrape ───────────────────────────────────────────────
     console.log(`[Apify] Profile scraping ${candidates.length} accounts …`);
     const profiles = await runApify("apify/instagram-profile-scraper", {
       usernames: candidates,
       resultsType: "posts",
-      resultsLimit: 12,
+      resultsLimit: 8,
       proxy: { useApifyProxy: true, apifyProxyGroups: ["RESIDENTIAL"] },
     }, 240);
 
@@ -370,9 +403,9 @@ export default async (req, context) => {
 
     console.log(`[Filter] ${results.length} stylists passed all filters`);
 
-    // Sort by followers descending, pick top 50
+    // Sort by followers descending, pick top 15
     results.sort((a, b) => b.followers - a.followers);
-    stylists = results.slice(0, 50).map((s, i) => ({ ...s, id: i + 1 }));
+    stylists = results.slice(0, 15).map((s, i) => ({ ...s, id: i + 1 }));
     apifyWorked = stylists.length > 0;
 
     if (!apifyWorked) throw new Error("All candidates filtered out — none passed criteria");
