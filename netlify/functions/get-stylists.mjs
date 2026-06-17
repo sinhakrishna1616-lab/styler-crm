@@ -22,8 +22,8 @@ const CURATED_STYLISTS = [
   { name:"Anaita Shroff Adajania",handle:"anaitashroffadajania",  followers:198000, des:"Senior", collabs:["Shah Rukh Khan","Farhan Akhtar","Imran Khan","Ranbir Kapoor"] },
   { name:"Priya Dewan",           handle:"priyadewan.style",      followers:145000, des:"Senior", collabs:["Hrithik Roshan","Ranbir Kapoor","Farhan Akhtar","Siddhanth Chaturvedi"] },
   { name:"Abhilasha Devnani",     handle:"abhilashadevnani",      followers:124000, des:"Senior", collabs:["Vicky Kaushal","Sidharth Malhotra","Shahid Kapoor","Ranveer Singh"] },
-  { name:"Sukruti Grover",        handle:"sukritigrover",         followers:178000, des:"Senior", collabs:["Ranveer Singh","Ranbir Kapoor","Aditya Roy Kapoor"] },
-  { name:"Poornamrtia Singh",     handle:"poornamrtasingh",       followers:156000, des:"Senior", collabs:["Ranveer Singh","Ranbir Kapoor","Vicky Kaushal"] },
+  { name:"Sukriti Grover",         handle:"sukritigrover",         followers:178000, des:"Senior", collabs:["Ranveer Singh","Ranbir Kapoor","Aditya Roy Kapoor"] },
+  { name:"Poornamrta Singh",       handle:"poornamrtasingh",       followers:156000, des:"Senior", collabs:["Ranveer Singh","Ranbir Kapoor","Vicky Kaushal"] },
   { name:"Maneka Harisinghani",   handle:"manekaharisinghani",    followers:143000, des:"Senior", collabs:["Shah Rukh Khan","Aamir Khan","Saif Ali Khan"] },
   { name:"Sheefa J Gilani",       handle:"sheefajgilani",         followers:127000, des:"Senior", collabs:["Salman Khan","Arbaaz Khan","Sohail Khan"] },
   { name:"Divya Kapoor",          handle:"divyakstyles",          followers:112000, des:"Senior", collabs:["Varun Dhawan","Arjun Kapoor","Aparshakti Khurana"] },
@@ -53,7 +53,7 @@ const CURATED_STYLISTS = [
   { name:"Kabir Nagpal",          handle:"kabirnagpal",           followers:74000,  des:"Junior", collabs:["Karan Aujla","AP Dhillon","King"] },
   { name:"Dev Narayan",           handle:"devnarayan.style",      followers:62000,  des:"Junior", collabs:["Vicky Kaushal","Sunny Kaushal","Abhimanyu Dassani"] },
   { name:"Karan Ahuja",           handle:"karanahuja.fashion",    followers:61000,  des:"Junior", collabs:["Kapil Sharma","Sunil Grover","Krushna Abhishek"] },
-  { name:"Aadi Pinkcity",         handle:"aadiPinkcity",          followers:68000,  des:"Junior", collabs:["Diljit Dosanjh","Ammy Virk","Gippy Grewal"] },
+  { name:"Aadi Pinkcity",         handle:"aadipinkcity",          followers:68000,  des:"Junior", collabs:["Diljit Dosanjh","Ammy Virk","Gippy Grewal"] },
   { name:"Mohit Rai",             handle:"mohitraistylist",       followers:67000,  des:"Junior", collabs:["Salman Khan","Sanjay Dutt","Bobby Deol"] },
   { name:"Mihir Dave",            handle:"mihir.dave.style",      followers:58000,  des:"Junior", collabs:["Dulquer Salmaan","Tovino Thomas","Fahadh Faasil"] },
   { name:"Eka Lakhani",           handle:"ekalakhani",            followers:76000,  des:"Junior", collabs:["Vicky Kaushal","Sidharth Malhotra","Aditya Roy Kapoor"] },
@@ -65,19 +65,33 @@ const CURATED_STYLISTS = [
   { name:"Chanchal Garg",         handle:"chanchal.garg.style",   followers:55000,  des:"Junior", collabs:["Ajay Devgn","Suniel Shetty","Rohit Shetty"] },
   { name:"Shreeya Parikh",        handle:"shreeyaparikh.style",   followers:43000,  des:"Intern", collabs:["Pratik Gandhi","Ravi Bhatia","Adarsh Gourav"] },
   { name:"Misha Jannat",          handle:"misha_jannat",          followers:48000,  des:"Intern", collabs:["Jatin Sarna","Jitendra Kumar","Vijay Varma"] },
+  { name:"Payal Jagwani",         handle:"payaljagwani",           followers:38000,  des:"Intern", collabs:["Mohsin Khan","Parth Samthaan"] },
+  { name:"Riya Mehta",            handle:"riya.mehta.style",       followers:35000,  des:"Intern", collabs:["Darshan Raval","Tony Kakkar"] },
+  { name:"Simran Khanna",         handle:"simrankhanna.style",     followers:41000,  des:"Intern", collabs:["Karan Wahi","Ssharad Malhotra"] },
+  { name:"Anushka Joshi",         handle:"anushkajoshi.fashion",   followers:33000,  des:"Intern", collabs:["Rohan Mehra","Vishal Aditya Singh"] },
 ];
 
-/** Compute today's 15 stylists using the same rotation as daily-stylist.mjs */
-function getTodaysCurated() {
-  const now       = new Date();
-  const startOfYr = new Date(now.getUTCFullYear(), 0, 0);
-  const dayOfYear = Math.floor((now - startOfYr) / 86400000);
-  const startIdx  = (dayOfYear * 15) % CURATED_STYLISTS.length;
-  const list = [];
-  for (let i = 0; i < 15; i++) {
-    list.push({ ...CURATED_STYLISTS[(startIdx + i) % CURATED_STYLISTS.length], id: i + 1 });
+function seededShuffle(arr, seed) {
+  const a = [...arr];
+  let s = seed;
+  for (let i = a.length - 1; i > 0; i--) {
+    s = (s * 1664525 + 1013904223) & 0xffffffff;
+    const j = Math.abs(s) % (i + 1);
+    [a[i], a[j]] = [a[j], a[i]];
   }
-  return list;
+  return a;
+}
+
+/** Compute today's balanced 15 stylists: 5 Senior + 8 Junior + 2 Intern */
+function getTodaysCurated() {
+  const now  = new Date();
+  const seed = now.getUTCFullYear() * 1000 + Math.floor((now - new Date(Date.UTC(now.getUTCFullYear(), 0, 0))) / 86400000);
+
+  const seniors = seededShuffle(CURATED_STYLISTS.filter(s => s.des === "Senior"), seed).slice(0, 5);
+  const juniors = seededShuffle(CURATED_STYLISTS.filter(s => s.des === "Junior"), seed + 1).slice(0, 8);
+  const interns = seededShuffle(CURATED_STYLISTS.filter(s => s.des === "Intern"), seed + 2).slice(0, 2);
+
+  return [...seniors, ...juniors, ...interns].map((s, i) => ({ ...s, id: i + 1 }));
 }
 
 export default async (req, context) => {
@@ -130,15 +144,22 @@ export default async (req, context) => {
       const dataStore = getStore("stylist-data");
       const cached    = await dataStore.getJSON("today");
       if (cached && Array.isArray(cached.stylists) && cached.stylists.length > 0) {
-        stylists  = cached.stylists;
-        updatedAt = cached.updatedAt;
-        source    = cached.source || "curated";
+        // Only use Blobs if data is from today (within last 12 hours)
+        const ageMs   = Date.now() - (cached.updatedAt || 0);
+        const isFresh = ageMs < 12 * 60 * 60 * 1000;
+        if (isFresh) {
+          stylists  = cached.stylists;
+          updatedAt = cached.updatedAt;
+          source    = cached.source || "curated";
+        } else {
+          console.log("[get-stylists] Blobs data stale, using live computation");
+        }
       }
     } catch (e) {
       console.warn("[get-stylists] Blobs read failed, using rotation:", e.message);
     }
 
-    // Fallback: compute today's 15 from curated list (always correct)
+    // Fallback: compute today's balanced 15 from curated list
     if (!stylists) {
       stylists = getTodaysCurated();
       source   = "curated";
