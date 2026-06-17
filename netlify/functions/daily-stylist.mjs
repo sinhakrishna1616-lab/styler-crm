@@ -18,8 +18,10 @@ import { getStore } from "@netlify/blobs";
 
 const TELEGRAM_TOKEN    = process.env.TELEGRAM_TOKEN;
 const TELEGRAM_CHAT_ID  = process.env.TELEGRAM_CHAT_ID;
-const WHATSAPP_PHONE    = process.env.WHATSAPP_PHONE;    // e.g. 917XXXXXXXXX
-const WHATSAPP_APIKEY   = process.env.WHATSAPP_APIKEY;   // CallMeBot API key
+const WHATSAPP_PHONE    = process.env.WHATSAPP_PHONE;
+const WHATSAPP_APIKEY   = process.env.WHATSAPP_APIKEY;
+const BREVO_API_KEY     = process.env.BREVO_API_KEY;
+const EMAIL_TO          = "socialbuzzkrish@gmail.com";
 const APIFY_TOKEN       = process.env.APIFY_TOKEN;
 const APIFY_BASE        = "https://api.apify.com/v2/acts";
 
@@ -109,6 +111,26 @@ async function sendTelegram(text) {
     if (chunks.length > 1) await sleep(500);
   }
 }
+
+/** Send email via Brevo (free, 300/day) */
+async function sendEmail(subject, htmlBody, plainBody) {
+  if (!BREVO_API_KEY) { console.warn("[Email] No BREVO_API_KEY — skipping"); return; }
+  const res = await fetch("https://api.brevo.com/v3/smtp/email", {
+    method: "POST",
+    headers: { "api-key": BREVO_API_KEY, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sender:      { name: "StylerCRM", email: "noreply@stylercrm.com" },
+      to:          [{ email: EMAIL_TO, name: "Krishna" }],
+      subject,
+      htmlContent: htmlBody,
+      textContent: plainBody,
+    }),
+  });
+  const j = await res.json().catch(() => ({}));
+  if (res.ok) console.log("[Email] Sent OK! messageId:", j.messageId);
+  else console.error("[Email] Failed:", JSON.stringify(j));
+}
+
 
 /** Send WhatsApp via CallMeBot */
 async function sendWhatsApp(text) {
@@ -286,10 +308,40 @@ export default async (req, context) => {
   htmlMsg  += `Total: ${todayList.length} | CRM: https://boisterous-empanada-fc858b.netlify.app/`;
   plainMsg += `Total: ${todayList.length}\nCRM: https://boisterous-empanada-fc858b.netlify.app/`;
 
-  // ── Send messages ─────────────────────────────────────────────────────────
+  // Build HTML email body
+  const emailHtml = `<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+  body{font-family:Arial,sans-serif;background:#f9f5ff;margin:0;padding:20px}
+  .card{background:#fff;border-radius:12px;padding:20px;margin-bottom:12px;border-left:4px solid #a855f7;box-shadow:0 2px 8px rgba(0,0,0,0.08)}
+  .name{font-size:16px;font-weight:bold;color:#1a1a2e}
+  .des{background:#ede9fe;color:#7c3aed;padding:2px 8px;border-radius:10px;font-size:12px;margin-left:8px}
+  .ig a{color:#a855f7;text-decoration:none;font-size:14px}
+  .meta{color:#666;font-size:13px;margin-top:4px}
+  .header{background:linear-gradient(135deg,#a855f7,#ec4899);color:#fff;padding:20px;border-radius:12px;margin-bottom:20px;text-align:center}
+  .footer{text-align:center;color:#999;font-size:12px;margin-top:20px}
+</style></head><body>
+<div class="header">
+  <h2 style="margin:0">StylerCRM Daily Stylist List</h2>
+  <p style="margin:4px 0 0">${dateStr}</p>
+  <p style="margin:4px 0 0;opacity:0.85;font-size:13px">${sourceNote}</p>
+</div>
+${todayList.map((s, i) => `
+<div class="card">
+  <div class="name">${i+1}. ${s.name} <span class="des">${s.des}</span></div>
+  <div class="ig"><a href="https://www.instagram.com/${s.handle}/">instagram.com/${s.handle}</a></div>
+  <div class="meta">Followers: ${fmt(s.followers)}${s.collabs?.length ? ` &nbsp;|&nbsp; Celebs: ${s.collabs.slice(0,3).join(", ")}` : ""}</div>
+</div>`).join("")}
+<div class="footer">
+  <a href="https://boisterous-empanada-fc858b.netlify.app/" style="color:#a855f7">Open CRM Dashboard</a>
+</div>
+</body></html>`;
+
+  // Send all channels in parallel
   await Promise.allSettled([
     sendTelegram(htmlMsg),
     sendWhatsApp(plainMsg),
+    sendEmail(`StylerCRM — ${todayList.length} New Stylists Today`, emailHtml, plainMsg),
   ]);
 
   console.log("=== Run complete ===");
