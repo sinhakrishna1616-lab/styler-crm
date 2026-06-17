@@ -5,36 +5,40 @@
  * Schedule: 30 2 * * * (UTC) = 8:00 AM IST
  *
  * Flow:
- *  1. Pick today's 15 stylists from the curated list (rotation by day-of-year)
- *  2. Save to Netlify Blobs (so the CRM frontend shows them)
- *  3. Send Telegram message with clickable Instagram links
- *
- * The curated list has 50 verified real Indian celebrity stylists.
- * Every day a different set of 15 is sent. No repeats for ~3 days.
- * Rotation is deterministic by UTC day-of-year so the schedule is stable.
+ *  1. Load sent-history from Blobs (30-day no-repeat window)
+ *  2. Try Apify instagram-profile-scraper on known stylist-network accounts
+ *     to discover new real stylists organically
+ *  3. Filter: 30K+ followers, stylist/fashion bio, not already sent
+ *  4. Pad with curated list entries (unsent ones) if Apify finds too few
+ *  5. Pick 15, save to Blobs, update sent-history
+ *  6. Send WhatsApp + Telegram
  */
 
 import { getStore } from "@netlify/blobs";
 
-const TELEGRAM_TOKEN   = process.env.TELEGRAM_TOKEN;
-const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+const TELEGRAM_TOKEN    = process.env.TELEGRAM_TOKEN;
+const TELEGRAM_CHAT_ID  = process.env.TELEGRAM_CHAT_ID;
+const WHATSAPP_PHONE    = process.env.WHATSAPP_PHONE;    // e.g. 917XXXXXXXXX
+const WHATSAPP_APIKEY   = process.env.WHATSAPP_APIKEY;   // CallMeBot API key
+const APIFY_TOKEN       = process.env.APIFY_TOKEN;
+const APIFY_BASE        = "https://api.apify.com/v2/acts";
 
-// ── Curated list of 50 verified real Indian male-celebrity stylists ────────────
-const CURATED_STYLISTS = [
-  { name:"Shaleena Nathani",      handle:"shaleenanathani",       followers:320000, des:"Senior", collabs:["Shah Rukh Khan","Ranbir Kapoor","Aamir Khan","Aditya Roy Kapoor"] },
-  { name:"Ami Patel",             handle:"stylebyami",            followers:267000, des:"Senior", collabs:["Hrithik Roshan","Tiger Shroff","Kartik Aaryan","Varun Dhawan"] },
-  { name:"Edward Lalrempuia",     handle:"edwardlalr",            followers:210000, des:"Senior", collabs:["Salman Khan","Shah Rukh Khan","Akshay Kumar","Varun Dhawan"] },
-  { name:"Tanya Ghavri",          handle:"tanyaghavri",           followers:156000, des:"Senior", collabs:["Karan Johar","Vicky Kaushal","Sidharth Malhotra","Kartik Aaryan"] },
-  { name:"Anaita Shroff Adajania",handle:"anaitashroffadajania",  followers:198000, des:"Senior", collabs:["Shah Rukh Khan","Farhan Akhtar","Imran Khan","Ranbir Kapoor"] },
-  { name:"Priya Dewan",           handle:"priyadewan.style",      followers:145000, des:"Senior", collabs:["Hrithik Roshan","Ranbir Kapoor","Farhan Akhtar","Siddhanth Chaturvedi"] },
-  { name:"Abhilasha Devnani",     handle:"abhilashadevnani",      followers:124000, des:"Senior", collabs:["Vicky Kaushal","Sidharth Malhotra","Shahid Kapoor","Ranveer Singh"] },
+// ── 50-person curated verified backup list ─────────────────────────────────
+const CURATED = [
+  { name:"Shaleena Nathani",      handle:"shaleenanathani",       followers:320000, des:"Senior", collabs:["Shah Rukh Khan","Ranbir Kapoor","Aamir Khan"] },
+  { name:"Ami Patel",             handle:"stylebyami",            followers:267000, des:"Senior", collabs:["Hrithik Roshan","Tiger Shroff","Kartik Aaryan"] },
+  { name:"Edward Lalrempuia",     handle:"edwardlalr",            followers:210000, des:"Senior", collabs:["Salman Khan","Shah Rukh Khan","Akshay Kumar"] },
+  { name:"Tanya Ghavri",          handle:"tanyaghavri",           followers:156000, des:"Senior", collabs:["Karan Johar","Vicky Kaushal","Sidharth Malhotra"] },
+  { name:"Anaita Shroff Adajania",handle:"anaitashroffadajania",  followers:198000, des:"Senior", collabs:["Shah Rukh Khan","Farhan Akhtar","Ranbir Kapoor"] },
+  { name:"Priya Dewan",           handle:"priyadewan.style",      followers:145000, des:"Senior", collabs:["Hrithik Roshan","Ranbir Kapoor","Farhan Akhtar"] },
+  { name:"Abhilasha Devnani",     handle:"abhilashadevnani",      followers:124000, des:"Senior", collabs:["Vicky Kaushal","Sidharth Malhotra","Ranveer Singh"] },
   { name:"Sukruti Grover",        handle:"sukritigrover",         followers:178000, des:"Senior", collabs:["Ranveer Singh","Ranbir Kapoor","Aditya Roy Kapoor"] },
   { name:"Poornamrtia Singh",     handle:"poornamrtasingh",       followers:156000, des:"Senior", collabs:["Ranveer Singh","Ranbir Kapoor","Vicky Kaushal"] },
   { name:"Maneka Harisinghani",   handle:"manekaharisinghani",    followers:143000, des:"Senior", collabs:["Shah Rukh Khan","Aamir Khan","Saif Ali Khan"] },
   { name:"Sheefa J Gilani",       handle:"sheefajgilani",         followers:127000, des:"Senior", collabs:["Salman Khan","Arbaaz Khan","Sohail Khan"] },
   { name:"Divya Kapoor",          handle:"divyakstyles",          followers:112000, des:"Senior", collabs:["Varun Dhawan","Arjun Kapoor","Aparshakti Khurana"] },
   { name:"Sanjana Mutoo",         handle:"sanjanamutoo",          followers:134000, des:"Senior", collabs:["Harshad Chopda","Kushal Tandon","Karan Singh Grover"] },
-  { name:"Nidhi Moony Singh",     handle:"nidhimooneysingh",      followers:312000, des:"Senior", collabs:["Gurmeet Choudhary","Vivian Dsena","Raqesh Bapat"] },
+  { name:"Nidhi Moony Singh",     handle:"nidhimooneysingh",      followers:312000, des:"Senior", collabs:["Gurmeet Choudhary","Vivian Dsena"] },
   { name:"Dolly Singh",           handle:"dollysingh",            followers:1200000,des:"Senior", collabs:["Badshah","Yo Yo Honey Singh","Raftaar"] },
   { name:"Meiyang Chang",         handle:"meiyang.chang",         followers:456000, des:"Senior", collabs:["Arijit Singh","Armaan Malik","Darshan Raval"] },
   { name:"Rohit Verma",           handle:"rohitvermaworld",       followers:234000, des:"Senior", collabs:["Mika Singh","Yo Yo Honey Singh","Divine"] },
@@ -46,82 +50,104 @@ const CURATED_STYLISTS = [
   { name:"Nikita Jaisinghani",    handle:"nikitajaisinghani",     followers:91000,  des:"Junior", collabs:["Akshay Kumar","Varun Dhawan","Sidharth Malhotra"] },
   { name:"Aastha Sharma",         handle:"aasthasharma.style",    followers:84000,  des:"Junior", collabs:["Kartik Aaryan","Tiger Shroff","Aditya Roy Kapoor"] },
   { name:"Puja Sheth",            handle:"pujasheth",             followers:93000,  des:"Junior", collabs:["Vicky Kaushal","Sidharth Malhotra","Varun Dhawan"] },
-  { name:"Sanjana Batra",         handle:"sanjanabatra",          followers:87000,  des:"Junior", collabs:["Vicky Kaushal","Sidharth Malhotra","Aditya Roy Kapoor"] },
+  { name:"Sanjana Batra",         handle:"sanjanabatra",          followers:87000,  des:"Junior", collabs:["Vicky Kaushal","Sidharth Malhotra"] },
   { name:"Pallavi Mohan",         handle:"pallavimohan",          followers:89000,  des:"Junior", collabs:["Shah Rukh Khan","Saif Ali Khan","Ranbir Kapoor"] },
-  { name:"Harmann Kaur",          handle:"harmannkaur",           followers:89000,  des:"Junior", collabs:["Vijay Deverakonda","Dulquer Salmaan","Tovino Thomas"] },
+  { name:"Harmann Kaur",          handle:"harmannkaur",           followers:89000,  des:"Junior", collabs:["Vijay Deverakonda","Dulquer Salmaan"] },
   { name:"Sanjay Gurbaxani",      handle:"sanjaygurbaxani",       followers:92000,  des:"Junior", collabs:["Rohit Sharma","MS Dhoni","Virat Kohli"] },
   { name:"Vikram Raizada",        handle:"vikramraizada.style",   followers:73000,  des:"Junior", collabs:["KL Rahul","Hardik Pandya","Rohit Sharma"] },
   { name:"Punit Balana",          handle:"punitbalana",           followers:89000,  des:"Junior", collabs:["AP Dhillon","Gurinder Gill","Shubh"] },
-  { name:"Shubhika Davda",        handle:"shubhikadavda",         followers:78000,  des:"Junior", collabs:["Hrithik Roshan","Tiger Shroff","Aditya Roy Kapoor"] },
+  { name:"Shubhika Davda",        handle:"shubhikadavda",         followers:78000,  des:"Junior", collabs:["Hrithik Roshan","Tiger Shroff"] },
   { name:"Radhika Mehra",         handle:"radhika.stylist",       followers:78000,  des:"Junior", collabs:["Kartik Aaryan","Tiger Shroff","Ishaan Khattar"] },
   { name:"Tanisha Bose",          handle:"tanishabosestyle",      followers:82000,  des:"Junior", collabs:["Arijit Singh","Armaan Malik","Darshan Raval"] },
   { name:"Neel Chauhan",          handle:"neelcstyle",            followers:88000,  des:"Junior", collabs:["KL Rahul","Hardik Pandya","Shubman Gill"] },
   { name:"Kabir Nagpal",          handle:"kabirnagpal",           followers:74000,  des:"Junior", collabs:["Karan Aujla","AP Dhillon","King"] },
-  { name:"Dev Narayan",           handle:"devnarayan.style",      followers:62000,  des:"Junior", collabs:["Vicky Kaushal","Sunny Kaushal","Abhimanyu Dassani"] },
-  { name:"Karan Ahuja",           handle:"karanahuja.fashion",    followers:61000,  des:"Junior", collabs:["Kapil Sharma","Sunil Grover","Krushna Abhishek"] },
+  { name:"Dev Narayan",           handle:"devnarayan.style",      followers:62000,  des:"Junior", collabs:["Vicky Kaushal","Sunny Kaushal"] },
+  { name:"Karan Ahuja",           handle:"karanahuja.fashion",    followers:61000,  des:"Junior", collabs:["Kapil Sharma","Sunil Grover"] },
   { name:"Aadi Pinkcity",         handle:"aadiPinkcity",          followers:68000,  des:"Junior", collabs:["Diljit Dosanjh","Ammy Virk","Gippy Grewal"] },
   { name:"Mohit Rai",             handle:"mohitraistylist",       followers:67000,  des:"Junior", collabs:["Salman Khan","Sanjay Dutt","Bobby Deol"] },
   { name:"Mihir Dave",            handle:"mihir.dave.style",      followers:58000,  des:"Junior", collabs:["Dulquer Salmaan","Tovino Thomas","Fahadh Faasil"] },
-  { name:"Eka Lakhani",           handle:"ekalakhani",            followers:76000,  des:"Junior", collabs:["Vicky Kaushal","Sidharth Malhotra","Aditya Roy Kapoor"] },
+  { name:"Eka Lakhani",           handle:"ekalakhani",            followers:76000,  des:"Junior", collabs:["Vicky Kaushal","Sidharth Malhotra"] },
   { name:"Lakshmi Lehr",          handle:"lakshmilehr",           followers:63000,  des:"Junior", collabs:["Ranveer Singh","Ranbir Kapoor","Shahid Kapoor"] },
-  { name:"Nikhil Mansata",        handle:"nikhilmansata",         followers:58000,  des:"Junior", collabs:["Ayushmann Khurrana","Rajkummar Rao","Vikrant Massey"] },
+  { name:"Nikhil Mansata",        handle:"nikhilmansata",         followers:58000,  des:"Junior", collabs:["Ayushmann Khurrana","Rajkummar Rao"] },
   { name:"Zara Sheikh",           handle:"zarasheikh.style",      followers:63000,  des:"Junior", collabs:["Diljit Dosanjh","Badshah","AP Dhillon"] },
   { name:"Aakash Mehta",          handle:"aakashmstyle",          followers:52000,  des:"Junior", collabs:["Ayushmann Khurrana","Rajkummar Rao","Jaideep Ahlawat"] },
   { name:"Siddharth Arora",       handle:"sidarora.fashion",      followers:54000,  des:"Junior", collabs:["Vijay Deverakonda","Ram Charan","Allu Arjun"] },
-  { name:"Chanchal Garg",         handle:"chanchal.garg.style",   followers:55000,  des:"Junior", collabs:["Ajay Devgn","Suniel Shetty","Rohit Shetty"] },
-  { name:"Shreeya Parikh",        handle:"shreeyaparikh.style",   followers:43000,  des:"Intern", collabs:["Pratik Gandhi","Ravi Bhatia","Adarsh Gourav"] },
+  { name:"Chanchal Garg",         handle:"chanchal.garg.style",   followers:55000,  des:"Junior", collabs:["Ajay Devgn","Suniel Shetty"] },
+  { name:"Shreeya Parikh",        handle:"shreeyaparikh.style",   followers:43000,  des:"Intern", collabs:["Pratik Gandhi","Ravi Bhatia"] },
   { name:"Misha Jannat",          handle:"misha_jannat",          followers:48000,  des:"Intern", collabs:["Jatin Sarna","Jitendra Kumar","Vijay Varma"] },
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-const fmt = (n) =>
-  n >= 1e6 ? (n / 1e6).toFixed(1) + "M" :
-  n >= 1e3 ? Math.round(n / 1e3)  + "K" : String(n);
-
+const fmt  = (n) => n>=1e6 ? (n/1e6).toFixed(1)+"M" : n>=1e3 ? Math.round(n/1e3)+"K" : String(n);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/** Send Telegram — splits messages > 4000 chars, retries as plain text if HTML fails */
-async function sendTelegram(text) {
-  if (!TELEGRAM_TOKEN || !TELEGRAM_CHAT_ID) {
-    console.warn("[Telegram] Missing credentials — skipping");
-    return;
+// Seeded shuffle so each day gets a DIFFERENT random order (same seed = same order that day)
+function seededShuffle(arr, seed) {
+  const a = [...arr];
+  let s = seed;
+  for (let i = a.length - 1; i > 0; i--) {
+    s = (s * 1664525 + 1013904223) & 0xffffffff;
+    const j = Math.abs(s) % (i + 1);
+    [a[i], a[j]] = [a[j], a[i]];
   }
+  return a;
+}
+
+/** Send Telegram message */
+async function sendTelegram(text) {
+  if (!TELEGRAM_TOKEN || !TELEGRAM_CHAT_ID) { console.warn("[Telegram] Missing creds"); return; }
   const chunks = [];
   for (let i = 0; i < text.length; i += 4000) chunks.push(text.slice(i, i + 4000));
-
   for (const chunk of chunks) {
     const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
-      method:  "POST",
-      headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({
-        chat_id:                  TELEGRAM_CHAT_ID,
-        text:                     chunk,
-        parse_mode:               "HTML",
-        disable_web_page_preview: true,
-      }),
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text: chunk,
+        parse_mode: "HTML", disable_web_page_preview: true }),
     });
-    const json = await res.json().catch(() => ({}));
-    if (!json.ok) {
-      console.error("[Telegram] HTML send failed:", JSON.stringify(json));
-      // Retry as plain text
-      const res2 = await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
-        method:  "POST",
-        headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({
-          chat_id:                  TELEGRAM_CHAT_ID,
-          text:                     chunk.replace(/<[^>]+>/g, ""),
-          disable_web_page_preview: true,
-        }),
-      });
-      const j2 = await res2.json().catch(() => ({}));
-      if (j2.ok) console.log("[Telegram] Plain text fallback sent OK");
-      else console.error("[Telegram] Both attempts failed:", JSON.stringify(j2));
-    } else {
-      console.log("[Telegram] Chunk sent OK, message_id:", json.result?.message_id);
-    }
+    const j = await res.json().catch(() => ({}));
+    console.log("[Telegram]", j.ok ? "OK msg_id=" + j.result?.message_id : "FAIL: " + JSON.stringify(j));
     if (chunks.length > 1) await sleep(500);
   }
+}
+
+/** Send WhatsApp via CallMeBot */
+async function sendWhatsApp(text) {
+  if (!WHATSAPP_PHONE || !WHATSAPP_APIKEY) { console.warn("[WhatsApp] Missing creds — skipping"); return; }
+  const encoded = encodeURIComponent(text);
+  const url = `https://api.callmebot.com/whatsapp.php?phone=${WHATSAPP_PHONE}&text=${encoded}&apikey=${WHATSAPP_APIKEY}`;
+  const res = await fetch(url);
+  const body = await res.text().catch(() => "");
+  console.log("[WhatsApp]", res.status, body.slice(0, 100));
+}
+
+/** Start Apify actor run and poll until done */
+async function runApify(actorId, input, maxWaitSecs = 300) {
+  if (!APIFY_TOKEN) throw new Error("No APIFY_TOKEN");
+  const startRes = await fetch(`${APIFY_BASE}/${encodeURIComponent(actorId)}/runs?token=${APIFY_TOKEN}&memory=256`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input),
+  });
+  if (!startRes.ok) throw new Error(`Apify start HTTP ${startRes.status}`);
+  const runId = (await startRes.json()).data?.id;
+  if (!runId) throw new Error("No runId");
+  console.log(`[Apify] ${actorId} started: ${runId}`);
+
+  const deadline = Date.now() + maxWaitSecs * 1000;
+  let status = "RUNNING";
+  while (Date.now() < deadline) {
+    await sleep(8000);
+    const p = await (await fetch(`https://api.apify.com/v2/actor-runs/${runId}?token=${APIFY_TOKEN}`)).json();
+    status = p.data?.status || "UNKNOWN";
+    console.log(`[Apify] ${runId} → ${status}`);
+    if (status === "SUCCEEDED") break;
+    if (["FAILED","ABORTED","TIMED-OUT"].includes(status)) throw new Error(`Run ${status}`);
+  }
+  if (status !== "SUCCEEDED") throw new Error("Apify timed out");
+
+  const runData   = await (await fetch(`https://api.apify.com/v2/actor-runs/${runId}?token=${APIFY_TOKEN}`)).json();
+  const dsId      = runData.data?.defaultDatasetId;
+  const itemsRes  = await fetch(`https://api.apify.com/v2/datasets/${dsId}/items?token=${APIFY_TOKEN}&format=json&clean=true`);
+  const items     = await itemsRes.json();
+  return Array.isArray(items) ? items : [];
 }
 
 // ── Scheduled function config ─────────────────────────────────────────────────
@@ -131,59 +157,141 @@ export const config = { schedule: "30 2 * * *" };  // 8:00 AM IST
 export default async (req, context) => {
   console.log("=== StylerCRM daily-stylist started ===");
 
-  // Pick today's 15 stylists using day-of-year rotation
-  const now       = new Date();
-  const startOfYr = new Date(now.getUTCFullYear(), 0, 0);
-  const dayOfYear = Math.floor((now - startOfYr) / 86400000);
-  const startIdx  = (dayOfYear * 15) % CURATED_STYLISTS.length;
+  const historyStore = getStore("sent-history");
+  const dataStore    = getStore("stylist-data");
 
-  const todayList = [];
-  for (let i = 0; i < 15; i++) {
-    todayList.push({ ...CURATED_STYLISTS[(startIdx + i) % CURATED_STYLISTS.length], id: i + 1 });
-  }
-  console.log(`[Rotation] Day ${dayOfYear}, startIdx ${startIdx} — selected ${todayList.length} stylists`);
-  console.log(`[Rotation] First: ${todayList[0].name}, Last: ${todayList[14].name}`);
-
-  // Save to Netlify Blobs (so get-stylists.mjs can serve them to the frontend)
+  // Load 30-day sent history
+  let sentHistory = {};
   try {
-    const dataStore = getStore("stylist-data");
-    await dataStore.setJSON("today", {
-      stylists:  todayList,
-      updatedAt: Date.now(),
-      source:    "curated",
-    });
-    console.log("[Blobs] Saved today's stylist list");
-  } catch (e) {
-    console.error("[Blobs] Failed to save:", e.message);
+    sentHistory = (await historyStore.getJSON("history")) || {};
+  } catch (e) { console.warn("[History] Could not load:", e.message); }
+
+  const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  // Clean old entries
+  for (const [h, ts] of Object.entries(sentHistory)) {
+    if (ts < thirtyDaysAgo) delete sentHistory[h];
+  }
+  const alreadySent = new Set(Object.keys(sentHistory));
+  console.log(`[History] ${alreadySent.size} handles sent in last 30 days`);
+
+  // ── Try Apify discovery ───────────────────────────────────────────────────
+  let apifyResults = [];
+  let apifyWorked  = false;
+
+  if (APIFY_TOKEN) {
+    try {
+      console.log("[Apify] Starting profile search for known stylist accounts...");
+
+      // Scrape followers of top known stylists to discover new ones
+      const seedAccounts = [
+        "shaleenanathani","stylebyami","edwardlalr","tanyaghavri",
+        "anaitashroffadajania","abhilashadevnani","sukritigrover",
+      ];
+
+      const profiles = await runApify("apify/instagram-profile-scraper", {
+        usernames:    seedAccounts,
+        resultsType:  "followers",
+        resultsLimit: 50,
+        proxy: { useApifyProxy: true, apifyProxyGroups: ["RESIDENTIAL"] },
+      }, 300);
+
+      console.log(`[Apify] Got ${profiles.length} follower profiles`);
+
+      const MALE_KW  = /\b(men|menswear|gents|actor|celeb|bollywood|stylist|fashion|styling|wardrobe|groom|sherwani|kurta|suit)\b/i;
+      const FEMONLY  = /\b(bridal|saree|lehenga)\b/i;
+
+      for (const p of profiles) {
+        const handle = (p.username || "").toLowerCase();
+        if (alreadySent.has(handle)) continue;
+        if (CURATED.some(c => c.handle.toLowerCase() === handle)) continue; // already in curated
+
+        const fl  = p.followersCount || 0;
+        if (fl < 30000) continue;
+        const bio = (p.biography || "").toLowerCase();
+        if (bio.length < 8) continue;
+        if (!MALE_KW.test(bio) && !MALE_KW.test(handle)) continue;
+        if (FEMONLY.test(bio)) continue;
+        if ((p.postsCount || 0) < 6) continue;
+
+        const des = fl >= 200000 ? "Senior" : fl >= 75000 ? "Junior" : "Intern";
+        apifyResults.push({
+          name: p.fullName || handle,
+          handle,
+          followers: fl,
+          des,
+          collabs: [],
+        });
+      }
+      apifyWorked = apifyResults.length > 0;
+      console.log(`[Apify] ${apifyResults.length} new stylists discovered`);
+    } catch (e) {
+      console.error("[Apify] Failed:", e.message);
+    }
   }
 
-  // Build Telegram message
-  const dateStr = now.toLocaleDateString("en-IN", {
-    timeZone: "Asia/Kolkata",
-    weekday: "long", day: "numeric", month: "long", year: "numeric",
-  });
+  // ── Build daily list: Apify new + unsent curated, shuffled by date seed ──
+  const today = new Date();
+  const seed  = today.getUTCFullYear() * 1000 + Math.floor((today - new Date(today.getUTCFullYear(),0,0)) / 86400000);
 
-  let msg = `<b>StylerCRM — Daily Stylist List</b>\n`;
-  msg += `Date: ${dateStr}\n`;
-  msg += `Source: Verified Indian Celebrity Stylists\n`;
-  msg += `${"─".repeat(28)}\n\n`;
+  // Unsent curated entries
+  const unsentCurated = CURATED.filter(s => !alreadySent.has(s.handle.toLowerCase()));
+  const shuffled      = seededShuffle(unsentCurated, seed);
+
+  // Merge: Apify first, then curated fill
+  const pool = [...apifyResults, ...shuffled];
+  const todayList = pool.slice(0, 15).map((s, i) => ({ ...s, id: i + 1 }));
+
+  console.log(`[List] ${todayList.length} stylists for today (${apifyResults.length} from Apify, ${todayList.length - apifyResults.length} from curated)`);
+
+  // Update sent history
+  for (const s of todayList) {
+    sentHistory[s.handle.toLowerCase()] = Date.now();
+  }
+  try {
+    await historyStore.setJSON("history", sentHistory);
+    await dataStore.setJSON("today", { stylists: todayList, updatedAt: Date.now(), source: apifyWorked ? "apify+curated" : "curated" });
+    console.log("[Blobs] Saved today's list and history");
+  } catch (e) {
+    console.error("[Blobs] Save failed:", e.message);
+  }
+
+  // ── Build message ─────────────────────────────────────────────────────────
+  const dateStr = today.toLocaleDateString("en-IN", {
+    timeZone: "Asia/Kolkata", weekday: "long", day: "numeric", month: "long", year: "numeric",
+  });
+  const sourceNote = apifyWorked ? "Live + Verified" : "Verified Stylists";
+
+  let htmlMsg = `<b>StylerCRM — Daily Stylist List</b>\n`;
+  htmlMsg += `Date: ${dateStr}\n`;
+  htmlMsg += `Source: ${sourceNote}\n`;
+  htmlMsg += `${"─".repeat(26)}\n\n`;
+
+  let plainMsg = `StylerCRM - Daily Stylist List\nDate: ${dateStr}\n\n`;
 
   todayList.forEach((s, i) => {
     const igLink = `https://www.instagram.com/${s.handle}/`;
-    msg += `<b>${i + 1}. ${s.name}</b>  |  ${s.des}\n`;
-    msg += `   <a href="${igLink}">instagram.com/${s.handle}</a>\n`;
-    msg += `   Followers: ${fmt(s.followers)}\n`;
-    if (s.collabs && s.collabs.length > 0) {
-      msg += `   Celebs: ${s.collabs.slice(0, 3).join(" · ")}\n`;
-    }
-    msg += `\n`;
+    htmlMsg  += `<b>${i+1}. ${s.name}</b>  |  ${s.des}\n`;
+    htmlMsg  += `   <a href="${igLink}">instagram.com/${s.handle}</a>\n`;
+    htmlMsg  += `   Followers: ${fmt(s.followers)}\n`;
+    if (s.collabs?.length) htmlMsg += `   Celebs: ${s.collabs.slice(0,3).join(" · ")}\n`;
+    htmlMsg  += `\n`;
+
+    plainMsg += `${i+1}. ${s.name} | ${s.des}\n`;
+    plainMsg += `   ${igLink}\n`;
+    plainMsg += `   Followers: ${fmt(s.followers)}\n`;
+    if (s.collabs?.length) plainMsg += `   Celebs: ${s.collabs.slice(0,3).join(", ")}\n`;
+    plainMsg += `\n`;
   });
 
-  msg += `\nTotal: ${todayList.length} stylists\n`;
-  msg += `CRM: https://boisterous-empanada-fc858b.netlify.app/`;
+  htmlMsg  += `Total: ${todayList.length} | CRM: https://boisterous-empanada-fc858b.netlify.app/`;
+  plainMsg += `Total: ${todayList.length}\nCRM: https://boisterous-empanada-fc858b.netlify.app/`;
 
-  await sendTelegram(msg);
+  // ── Send messages ─────────────────────────────────────────────────────────
+  await Promise.allSettled([
+    sendTelegram(htmlMsg),
+    sendWhatsApp(plainMsg),
+  ]);
 
-  console.log(`=== Run complete. Sent ${todayList.length} stylists ===`);
+  console.log("=== Run complete ===");
   return new Response("Daily list sent!", { status: 200 });
 };
