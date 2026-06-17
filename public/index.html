@@ -49,7 +49,7 @@
 <script type="text/babel">
 const { useState, useEffect, useRef, useCallback } = React;
 
-const API = "/.netlify/functions/get-stylists";
+const API = "/.netlify/functions/stylists";
 
 const fmt = n => n >= 1e6 ? (n/1e6).toFixed(1)+"M" : n >= 1e3 ? Math.round(n/1e3)+"K" : String(n);
 const initials = name => name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase();
