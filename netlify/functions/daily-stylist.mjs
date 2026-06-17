@@ -262,10 +262,11 @@ export default async (req, context) => {
     if (s.collabs?.length) htmlMsg += `   Celebs: ${s.collabs.slice(0,3).join(" · ")}\n`;
     htmlMsg  += `\n`;
 
+    // WhatsApp: use @handle so user can search directly in Instagram app
     plainMsg += `${i+1}. ${s.name} | ${s.des}\n`;
-    plainMsg += `   ${igLink}\n`;
-    plainMsg += `   Followers: ${fmt(s.followers)}\n`;
-    if (s.collabs?.length) plainMsg += `   Celebs: ${s.collabs.slice(0,3).join(", ")}\n`;
+    plainMsg += `   📸 @${s.handle}\n`;
+    plainMsg += `   👥 ${fmt(s.followers)} followers\n`;
+    if (s.collabs?.length) plainMsg += `   🎬 ${s.collabs.slice(0,3).join(", ")}\n`;
     plainMsg += `\n`;
   });
 
