@@ -1,5 +1,5 @@
 /**
- * get-stylists.mjs
+ * get-stylists.mjs — v3-balanced
  * StylerCRM — HTTP API endpoint
  *
  * GET  /.netlify/functions/get-stylists
@@ -156,7 +156,7 @@ export default async (req, context) => {
     }
 
     return new Response(
-      JSON.stringify({ stylists, statuses, updatedAt, source }),
+      JSON.stringify({ stylists, statuses, updatedAt, source, v: "v3-balanced" }),
       {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "no-store" },
