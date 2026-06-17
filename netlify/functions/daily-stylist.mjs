@@ -199,74 +199,16 @@ export default async (req, context) => {
   const alreadySent = new Set(Object.keys(sentHistory));
   console.log(`[History] ${alreadySent.size} handles sent in last 30 days`);
 
-  // ── Try Apify discovery ───────────────────────────────────────────────────
-  let apifyResults = [];
-  let apifyWorked  = false;
-
-  if (APIFY_TOKEN) {
-    try {
-      console.log("[Apify] Starting profile search for known stylist accounts...");
-
-      // Scrape followers of top known stylists to discover new ones
-      const seedAccounts = [
-        "shaleenanathani","stylebyami","edwardlalr","tanyaghavri",
-        "anaitashroffadajania","abhilashadevnani","sukritigrover",
-      ];
-
-      const profiles = await runApify("apify/instagram-profile-scraper", {
-        usernames:    seedAccounts,
-        resultsType:  "followers",
-        resultsLimit: 50,
-        proxy: { useApifyProxy: true, apifyProxyGroups: ["RESIDENTIAL"] },
-      }, 300);
-
-      console.log(`[Apify] Got ${profiles.length} follower profiles`);
-
-      const MALE_KW  = /\b(men|menswear|gents|actor|celeb|bollywood|stylist|fashion|styling|wardrobe|groom|sherwani|kurta|suit)\b/i;
-      const FEMONLY  = /\b(bridal|saree|lehenga)\b/i;
-
-      for (const p of profiles) {
-        const handle = (p.username || "").toLowerCase();
-        if (alreadySent.has(handle)) continue;
-        if (CURATED.some(c => c.handle.toLowerCase() === handle)) continue; // already in curated
-
-        const fl  = p.followersCount || 0;
-        if (fl < 30000) continue;
-        const bio = (p.biography || "").toLowerCase();
-        if (bio.length < 8) continue;
-        if (!MALE_KW.test(bio) && !MALE_KW.test(handle)) continue;
-        if (FEMONLY.test(bio)) continue;
-        if ((p.postsCount || 0) < 6) continue;
-
-        const des = fl >= 200000 ? "Senior" : fl >= 75000 ? "Junior" : "Intern";
-        apifyResults.push({
-          name: p.fullName || handle,
-          handle,
-          followers: fl,
-          des,
-          collabs: [],
-        });
-      }
-      apifyWorked = apifyResults.length > 0;
-      console.log(`[Apify] ${apifyResults.length} new stylists discovered`);
-    } catch (e) {
-      console.error("[Apify] Failed:", e.message);
-    }
-  }
-
-  // ── Build daily list: Apify new + unsent curated, shuffled by date seed ──
+  // ── Build daily list from curated, shuffled by date seed ─────────────────
   const today = new Date();
-  const seed  = today.getUTCFullYear() * 1000 + Math.floor((today - new Date(today.getUTCFullYear(),0,0)) / 86400000);
+  const seed  = today.getUTCFullYear() * 1000 + Math.floor((today - new Date(today.getUTCFullYear(), 0, 0)) / 86400000);
 
-  // Unsent curated entries
   const unsentCurated = CURATED.filter(s => !alreadySent.has(s.handle.toLowerCase()));
   const shuffled      = seededShuffle(unsentCurated, seed);
+  const todayList     = shuffled.slice(0, 15).map((s, i) => ({ ...s, id: i + 1 }));
 
-  // Merge: Apify first, then curated fill
-  const pool = [...apifyResults, ...shuffled];
-  const todayList = pool.slice(0, 15).map((s, i) => ({ ...s, id: i + 1 }));
+  console.log(`[List] ${todayList.length} stylists (from curated, unsent pool: ${unsentCurated.length})`);
 
-  console.log(`[List] ${todayList.length} stylists for today (${apifyResults.length} from Apify, ${todayList.length - apifyResults.length} from curated)`);
 
   // Update sent history
   for (const s of todayList) {
@@ -274,7 +216,7 @@ export default async (req, context) => {
   }
   try {
     await historyStore.setJSON("history", sentHistory);
-    await dataStore.setJSON("today", { stylists: todayList, updatedAt: Date.now(), source: apifyWorked ? "apify+curated" : "curated" });
+    await dataStore.setJSON("today", { stylists: todayList, updatedAt: Date.now(), source: "curated" });
     console.log("[Blobs] Saved today's list and history");
   } catch (e) {
     console.error("[Blobs] Save failed:", e.message);
@@ -284,7 +226,7 @@ export default async (req, context) => {
   const dateStr = today.toLocaleDateString("en-IN", {
     timeZone: "Asia/Kolkata", weekday: "long", day: "numeric", month: "long", year: "numeric",
   });
-  const sourceNote = apifyWorked ? "Live + Verified" : "Verified Stylists";
+  const sourceNote = "Verified Indian Celebrity Stylists";
 
   let htmlMsg = `<b>StylerCRM — Daily Stylist List</b>\n`;
   htmlMsg += `Date: ${dateStr}\n`;
