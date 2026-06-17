@@ -4,3 +4,5 @@
 
 [functions]
   node_bundler = "esbuild"
+
+# Force rebuild: v3-balanced
