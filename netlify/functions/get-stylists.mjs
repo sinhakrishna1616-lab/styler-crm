@@ -167,4 +167,11 @@ export default async (req, context) => {
     );
   } catch (err) {
     console.error("[get-stylists GET]", err.message);
+    const fallback = getTodaysCurated();
+    return new Response(
+      JSON.stringify({ stylists: fallback, statuses: {}, source: "curated" }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  }
 };
+
