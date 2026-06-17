@@ -112,23 +112,24 @@ async function sendTelegram(text) {
   }
 }
 
-/** Send email via Brevo (free, 300/day) */
+/** Send email via Resend (free, 3000/month, guaranteed inbox delivery) */
 async function sendEmail(subject, htmlBody, plainBody) {
-  if (!BREVO_API_KEY) { console.warn("[Email] No BREVO_API_KEY — skipping"); return; }
-  const res = await fetch("https://api.brevo.com/v3/smtp/email", {
+  const RESEND_KEY = process.env.RESEND_API_KEY;
+  if (!RESEND_KEY) { console.warn("[Email] No RESEND_API_KEY — skipping"); return; }
+  const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
-    headers: { "api-key": BREVO_API_KEY, "Content-Type": "application/json" },
+    headers: { "Authorization": `Bearer ${RESEND_KEY}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      sender:      { name: "StylerCRM", email: "noreply@stylercrm.com" },
-      to:          [{ email: EMAIL_TO, name: "Krishna" }],
+      from:    "StylerCRM <onboarding@resend.dev>",
+      to:      [EMAIL_TO],
       subject,
-      htmlContent: htmlBody,
-      textContent: plainBody,
+      html:    htmlBody,
+      text:    plainBody,
     }),
   });
   const j = await res.json().catch(() => ({}));
-  if (res.ok) console.log("[Email] Sent OK! messageId:", j.messageId);
-  else console.error("[Email] Failed:", JSON.stringify(j));
+  if (res.ok) console.log("[Email] Resend OK! id:", j.id);
+  else console.error("[Email] Resend failed:", JSON.stringify(j));
 }
 
 
